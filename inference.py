@@ -1,9 +1,25 @@
-import os, json, sqlite3, pandas as pd, torch, re, unicodedata
+import os
+import json
+import sqlite3
+import pandas as pd
+import torch
+import re
+import unicodedata
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-INPUT_DIR = "/code/input"   
-OUTPUT_DIR = "/code/output" 
+# ==========================================
+# 1. CẤU HÌNH ĐƯỜNG DẪN CHUẨN CỦA BTC ZALO
+# ==========================================
+INPUT_DIR = "/data"       # Nơi BTC mount dữ liệu câu hỏi vào
+OUTPUT_DIR = "/result"    # Nơi BTC yêu cầu lưu file submission.jsonl
+MODEL_PATH = "/code/qwen_sql_merged_4bit" # Model nằm trong thư mục /code
 
+# Đảm bảo thư mục output tồn tại trước khi ghi file
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# ==========================================
+# 2. CÁC HÀM SQLITE TÙY CHỈNH
+# ==========================================
 def vn_norm(text):
     if text is None: return None
     text = str(text).lower().replace("đ", "d")
@@ -19,11 +35,22 @@ def vn_ymd(date_str):
     match = re.search(r'(\d{4})[-/](\d{2})[-/](\d{2})', str(date_str))
     return match.group(1) + match.group(2) + match.group(3) if match else None
 
+# ==========================================
+# 3. LOAD MODEL OFFLINE
+# ==========================================
 print("⏳ Đang load Model Offline...")
-model_path = "/code/qwen_sql_merged_4bit"
-tokenizer = AutoTokenizer.from_pretrained(model_path)
-model = AutoModelForCausalLM.from_pretrained(model_path, device_map="auto", torch_dtype=torch.float16, trust_remote_code=True)
+tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
+model = AutoModelForCausalLM.from_pretrained(
+    MODEL_PATH, 
+    device_map="auto", 
+    dtype=torch.float16, # Đã sửa từ torch_dtype thành dtype để hết warning
+    trust_remote_code=True
+)
+model.eval()
 
+# ==========================================
+# 4. SYSTEM PROMPT (Giữ nguyên bản dài của bạn)
+# ==========================================
 system_prompt = """Bạn là chuyên gia SQLite phân tích dữ liệu kinh doanh tiếng Việt.
 Từ câu hỏi, README và schema được cung cấp, hãy viết ĐÚNG MỘT câu SELECT để trả lời.
 CHỈ trả về một JSON hợp lệ, không markdown, không giải thích ngoài JSON:
@@ -155,24 +182,37 @@ LOẠI ĐÁP ÁN (type)
 - unanswerable: không trả lời được.
 """
 
+# ==========================================
+# 5. HÀM XỬ LÝ DATABASE
+# ==========================================
 def build_sqlite_db(biz_id):
     biz_path = os.path.join(INPUT_DIR, "data", biz_id)
-    db_path = f"/code/_temp_{biz_id}.db"
+    # Lưu file database tạm vào /tmp để tránh lỗi Permission Denied
+    db_path = f"/tmp/_temp_{biz_id}.db" 
+    
+    if os.path.exists(db_path):
+        try: os.remove(db_path)
+        except: pass
+    
     conn = sqlite3.connect(db_path)
     conn.create_function("vn_norm", 1, vn_norm)
     conn.create_function("vn_ym", 1, vn_ym)
     conn.create_function("vn_ymd", 1, vn_ymd)
+    
     if os.path.exists(biz_path):
         for filename in os.listdir(biz_path):
             filepath = os.path.join(biz_path, filename)
             if filename.endswith(".csv"):
-                try: pd.read_csv(filepath).to_sql(filename.replace(".csv", "").lower(), conn, if_exists="replace", index=False)
+                try:
+                    df = pd.read_csv(filepath)
+                    df.to_sql(filename.replace(".csv", "").lower(), conn, if_exists="replace", index=False)
                 except: pass
             elif filename.endswith(".xlsx"):
                 try:
                     xls = pd.ExcelFile(filepath)
                     for sheet in xls.sheet_names:
-                        pd.read_excel(xls, sheet_name=sheet).to_sql(f"{filename.replace('.xlsx', '')}_{sheet}".lower(), conn, if_exists="replace", index=False)
+                        df = pd.read_excel(xls, sheet_name=sheet)
+                        df.to_sql(f"{filename.replace('.xlsx', '')}_{sheet}".lower(), conn, if_exists="replace", index=False)
                 except: pass
     conn.close()
     return db_path
@@ -183,13 +223,18 @@ def get_schema_and_readme(biz_id, db_path):
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
     schema_str = ""
     for table in cursor.fetchall():
-        cursor.execute(f'PRAGMA table_info("{table[0]}");')
-        schema_str += f"Table: {table[0]} | Columns: {', '.join([c[1] for c in cursor.fetchall()])}\n"
+        t_name = table[0]
+        cursor.execute(f'PRAGMA table_info("{t_name}");')
+        schema_str += f"Table: {t_name} | Columns: {', '.join([c[1] for c in cursor.fetchall()])}\n"
     conn.close()
+    
     readme_path = os.path.join(INPUT_DIR, "data", biz_id, "README.md")
     readme_str = open(readme_path, "r", encoding="utf-8").read() if os.path.exists(readme_path) else ""
     return schema_str, readme_str
 
+# ==========================================
+# 6. VÒNG LẶP CHẠY INFERENCE
+# ==========================================
 questions_path = os.path.join(INPUT_DIR, "questions.jsonl")
 with open(questions_path, "r", encoding="utf-8") as f:
     questions = [json.loads(line) for line in f if line.strip()]
@@ -205,14 +250,24 @@ for idx, q in enumerate(questions):
     user_prompt = f"Doanh nghiệp: {biz_id}\nREADME:\n{readme}\nSchema:\n{schema}\nHôm nay là: {as_of_date}\nCâu hỏi: {q['question']}\nTrả về JSON."
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
     
-    inputs = tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True, return_tensors="pt", max_length=4096, truncation=True).to("cuda")
+    inputs = tokenizer.apply_chat_template(
+        messages, 
+        tokenize=True, 
+        add_generation_prompt=True, 
+        return_tensors="pt", 
+        max_length=4096, 
+        truncation=True
+    ).to(model.device)
+    
     outputs = model.generate(input_ids=inputs, max_new_tokens=512, use_cache=True)
     response_text = tokenizer.batch_decode(outputs)[0].split("<|im_start|>assistant")[-1].replace("<|im_end|>", "").strip()
     
     try:
         json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
         ai_output = json.loads(json_match.group(0)) if json_match else {}
-        sql, ans_type = ai_output.get("sql"), ai_output.get("type", "number")
+        
+        sql = ai_output.get("sql")
+        ans_type = ai_output.get("type", "number")
         
         if sql is None or ans_type == "unanswerable":
             pred = {"value": None}
@@ -223,23 +278,32 @@ for idx, q in enumerate(questions):
             conn.create_function("vn_ymd", 1, vn_ymd)
             df = pd.read_sql_query(sql, conn)
             conn.close()
-            if df.empty: pred = {"value": None}
+            
+            if df.empty:
+                pred = {"value": None}
             else:
-                if ans_type == "list": pred = {"items": df.iloc[:, 0].tolist()}
-                elif ans_type == "table": pred = {"columns": df.columns.tolist(), "rows": df.values.tolist()}
+                if ans_type == "list": 
+                    pred = {"items": df.iloc[:, 0].tolist()}
+                elif ans_type == "table": 
+                    pred = {"columns": df.columns.tolist(), "rows": df.values.tolist()}
                 else:
                     val = df.iloc[0, 0]
-                    if isinstance(val, (int, float)): val = float(val) if '.' in str(val) else int(val)
+                    if isinstance(val, (int, float)): 
+                        val = float(val) if '.' in str(val) else int(val)
                     pred = {"value": val}
     except Exception:
-        ans_type, pred = "unanswerable", {"value": None}
+        ans_type = "unanswerable"
+        pred = {"value": None}
 
     results.append({"id": qid, "type": ans_type, "answer": pred})
+    
     if (idx + 1) % 50 == 0:
         print(f"  ✅ Đã xong {idx + 1}/{len(questions)}")
 
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-with open(os.path.join(OUTPUT_DIR, "submission.jsonl"), "w", encoding="utf-8") as f:
+# Ghi file kết quả vào thư mục /result của BTC
+output_path = os.path.join(OUTPUT_DIR, "submission.jsonl")
+with open(output_path, "w", encoding="utf-8") as f:
     for res in results:
         f.write(json.dumps(res, ensure_ascii=False) + "\n")
-print("🎉 HOÀN THÀNH!")
+
+print(f"🎉 HOÀN THÀNH! File kết quả đã lưu tại: {output_path}")

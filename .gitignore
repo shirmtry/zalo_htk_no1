@@ -1,0 +1,10 @@
+# Chặn các file nặng
+*.tar
+*.zip
+*.db
+qwen_sql_merged_4bit/
+
+# Chặn file rác của Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/

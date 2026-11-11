@@ -24,10 +24,10 @@ jobs:
           rm qwen_sql_merged_4bit.zip
 
       - name: Build Docker Image
-        run: docker build -t zalo_dataspace:v5 .
+        run: docker build -t zalo_dataspace:v6 .  # <-- Đổi thành v6
 
       - name: Save Docker Image to Tar
-        run: docker save -o zalo_dataspace_v5.tar zalo_dataspace:v5
+        run: docker save -o zalo_dataspace_v6.tar zalo_dataspace:v6  # <-- Đổi thành v6
 
       - name: Upload to Hugging Face
         run: |
@@ -39,8 +39,8 @@ jobs:
           api = HfApi()
           print('Đang bắt đầu upload file 11GB lên Hugging Face...')
           api.upload_file(
-              path_or_fileobj='zalo_dataspace_v5.tar',
-              path_in_repo='zalo_dataspace_v5.tar',
+              path_or_fileobj='zalo_dataspace_v6.tar',  # <-- Đổi thành v6
+              path_in_repo='zalo_dataspace_v6.tar',     # <-- Đổi thành v6
               repo_id='Huy1223/zalo_submit_htk',
               repo_type='dataset',
               token=os.environ['HF_TOKEN']
