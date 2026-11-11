@@ -7,7 +7,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      # BƯỚC CỰC KỲ QUAN TRỌNG: Dọn dẹp ổ cứng để không bị lỗi "Disk Full"
       - name: Free Disk Space
         uses: jlumbroso/free-disk-space@main
         with:
@@ -30,16 +29,13 @@ jobs:
       - name: Save Docker Image to Tar
         run: docker save -o zalo_dataspace_v5.tar zalo_dataspace:v5
 
-      # BƯỚC ĐẨY LÊN HUGGING FACE (Đã sửa lỗi command not found)
       - name: Upload to Hugging Face
         run: |
           pip install "huggingface_hub[hf_transfer]"
           python -c "
           from huggingface_hub import HfApi
           import os
-          # Bật chế độ tải siêu tốc
           os.environ['HF_HUB_ENABLE_HF_TRANSFER'] = '1'
-          
           api = HfApi()
           print('Đang bắt đầu upload file 11GB lên Hugging Face...')
           api.upload_file(
@@ -47,7 +43,9 @@ jobs:
               path_in_repo='zalo_dataspace_v5.tar',
               repo_id='Huy1223/zalo_submit_htk',
               repo_type='dataset',
-              token='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' # ⚠️ THAY TOKEN CỦA BẠN VÀO ĐÂY
+              token=os.environ['HF_TOKEN']
           )
           print('✅ Upload thành công!')
           "
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
