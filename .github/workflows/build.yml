@@ -1,0 +1,26 @@
+name: Build Zalo Docker
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Tải và giải nén Model
+        run: |
+          wget https://huggingface.co/Huy1223/datamate_models/resolve/main/qwen_sql_merged_4bit.zip
+          unzip qwen_sql_merged_4bit.zip
+          rm qwen_sql_merged_4bit.zip
+
+      - name: Build Docker Image
+        run: docker build -t zalo_dataspace:v5 .
+
+      - name: Save Docker Image to Tar
+        run: docker save -o zalo_dataspace_v5.tar zalo_dataspace:v5
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zalo-docker-image
+          path: zalo_dataspace_v5.tar
+          retention-days: 1
