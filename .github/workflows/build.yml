@@ -1,5 +1,6 @@
-name: Build Zalo Docker
+name: Build and Push to Hugging Face
 on: [push, workflow_dispatch]
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -18,9 +19,10 @@ jobs:
       - name: Save Docker Image to Tar
         run: docker save -o zalo_dataspace_v5.tar zalo_dataspace:v5
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: zalo-docker-image
-          path: zalo_dataspace_v5.tar
-          retention-days: 1
+      # BƯỚC TỰ ĐỘNG ĐẨY LÊN HUGGING FACE
+      - name: Upload to Hugging Face
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          pip install huggingface_hub
+          huggingface-cli upload Huy1223/zalo_submit_htk zalo_dataspace_v5.tar zalo_dataspace_v5.tar --repo-type dataset
