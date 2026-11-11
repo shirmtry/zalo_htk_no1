@@ -5,8 +5,19 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
       
+      # BƯỚC CỰC KỲ QUAN TRỌNG: Dọn dẹp ổ cứng để không bị lỗi "Disk Full"
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage: true
+
       - name: Tải và giải nén Model
         run: |
           wget https://huggingface.co/Huy1223/datamate_models/resolve/main/qwen_sql_merged_4bit.zip
@@ -19,10 +30,24 @@ jobs:
       - name: Save Docker Image to Tar
         run: docker save -o zalo_dataspace_v5.tar zalo_dataspace:v5
 
-      # BƯỚC TỰ ĐỘNG ĐẨY LÊN HUGGING FACE
+      # BƯỚC ĐẨY LÊN HUGGING FACE (Đã sửa lỗi command not found)
       - name: Upload to Hugging Face
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          pip install huggingface_hub
-          huggingface-cli upload Huy1223/zalo_submit_htk zalo_dataspace_v5.tar zalo_dataspace_v5.tar --repo-type dataset
+          pip install "huggingface_hub[hf_transfer]"
+          python -c "
+          from huggingface_hub import HfApi
+          import os
+          # Bật chế độ tải siêu tốc
+          os.environ['HF_HUB_ENABLE_HF_TRANSFER'] = '1'
+          
+          api = HfApi()
+          print('Đang bắt đầu upload file 11GB lên Hugging Face...')
+          api.upload_file(
+              path_or_fileobj='zalo_dataspace_v5.tar',
+              path_in_repo='zalo_dataspace_v5.tar',
+              repo_id='Huy1223/zalo_submit_htk',
+              repo_type='dataset',
+              token='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' # ⚠️ THAY TOKEN CỦA BẠN VÀO ĐÂY
+          )
+          print('✅ Upload thành công!')
+          "
