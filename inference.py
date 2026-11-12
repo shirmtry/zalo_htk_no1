@@ -250,16 +250,21 @@ for idx, q in enumerate(questions):
     user_prompt = f"Doanh nghiệp: {biz_id}\nREADME:\n{readme}\nSchema:\n{schema}\nHôm nay là: {as_of_date}\nCâu hỏi: {q['question']}\nTrả về JSON."
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
     
-    inputs = tokenizer.apply_chat_template(
+    # FIX LỖI ATTRIBUTE ERROR TẠI ĐÂY
+    prompt_text = tokenizer.apply_chat_template(
         messages, 
-        tokenize=True, 
-        add_generation_prompt=True, 
+        tokenize=False, 
+        add_generation_prompt=True
+    )
+    
+    inputs = tokenizer(
+        prompt_text, 
         return_tensors="pt", 
         max_length=4096, 
         truncation=True
     ).to(model.device)
     
-    outputs = model.generate(input_ids=inputs, max_new_tokens=512, use_cache=True)
+    outputs = model.generate(**inputs, max_new_tokens=512, use_cache=True)
     response_text = tokenizer.batch_decode(outputs)[0].split("<|im_start|>assistant")[-1].replace("<|im_end|>", "").strip()
     
     try:

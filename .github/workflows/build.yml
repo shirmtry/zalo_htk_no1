@@ -24,11 +24,19 @@ jobs:
           rm qwen_sql_merged_4bit.zip
 
       - name: Build Docker Image
-        run: docker build -t zalo_dataspace:v6 .  # <-- Đổi thành v6
+        run: docker build -t zalo_dataspace:v6 .
 
       - name: Save Docker Image to Tar
-        run: docker save -o zalo_dataspace_v6.tar zalo_dataspace:v6  # <-- Đổi thành v6
+        run: docker save -o zalo_dataspace_v7.tar zalo_dataspace:v7
 
+      # 🌟 BƯỚC MỚI: TÍNH MÃ MD5 VÀ LƯU RA FILE
+      - name: Tính mã MD5
+        run: |
+          md5sum zalo_dataspace_v7.tar > checksum.md5
+          echo "Mã MD5 của bạn là:"
+          cat checksum.md5
+
+      # 🌟 UPLOAD CẢ FILE .TAR VÀ FILE CHECKSUM LÊN HUGGING FACE
       - name: Upload to Hugging Face
         run: |
           pip install "huggingface_hub[hf_transfer]"
@@ -37,15 +45,25 @@ jobs:
           import os
           os.environ['HF_HUB_ENABLE_HF_TRANSFER'] = '1'
           api = HfApi()
+          
           print('Đang bắt đầu upload file 11GB lên Hugging Face...')
           api.upload_file(
-              path_or_fileobj='zalo_dataspace_v6.tar',  # <-- Đổi thành v6
-              path_in_repo='zalo_dataspace_v6.tar',     # <-- Đổi thành v6
+              path_or_fileobj='zalo_dataspace_v7.tar',
+              path_in_repo='zalo_dataspace_v7.tar',
               repo_id='Huy1223/zalo_submit_htk',
               repo_type='dataset',
               token=os.environ['HF_TOKEN']
           )
-          print('✅ Upload thành công!')
+          
+          print('Đang upload file checksum.md5...')
+          api.upload_file(
+              path_or_fileobj='checksum.md5',
+              path_in_repo='checksum.md5',
+              repo_id='Huy1223/zalo_submit_htk',
+              repo_type='dataset',
+              token=os.environ['HF_TOKEN']
+          )
+          print('✅ Upload thành công cả 2 file!')
           "
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
