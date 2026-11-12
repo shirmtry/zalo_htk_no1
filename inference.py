@@ -10,12 +10,14 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 # ==========================================
 # 1. CẤU HÌNH ĐƯỜNG DẪN CHUẨN CỦA BTC ZALO
 # ==========================================
-INPUT_DIR = "/data"       # Nơi BTC mount dữ liệu câu hỏi vào
-OUTPUT_DIR = "/result"    # Nơi BTC yêu cầu lưu file submission.jsonl
-MODEL_PATH = "/code/qwen_sql_merged_4bit" # Model nằm trong thư mục /code
+INPUT_DIR = "/data"       
+OUTPUT_DIR = "/result"    
+MODEL_PATH = "/code/qwen_sql_merged_4bit" 
 
-# Đảm bảo thư mục output tồn tại trước khi ghi file
+# Đảm bảo thư mục output và logs tồn tại
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+LOGS_DIR = os.path.join(OUTPUT_DIR, "logs")
+os.makedirs(LOGS_DIR, exist_ok=True)
 
 # ==========================================
 # 2. CÁC HÀM SQLITE TÙY CHỈNH
@@ -43,13 +45,13 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_PATH, 
     device_map="auto", 
-    dtype=torch.float16, # Đã sửa từ torch_dtype thành dtype để hết warning
+    dtype=torch.float16, 
     trust_remote_code=True
 )
 model.eval()
 
 # ==========================================
-# 4. SYSTEM PROMPT (Giữ nguyên bản dài của bạn)
+# 4. SYSTEM PROMPT
 # ==========================================
 system_prompt = """Bạn là chuyên gia SQLite phân tích dữ liệu kinh doanh tiếng Việt.
 Từ câu hỏi, README và schema được cung cấp, hãy viết ĐÚNG MỘT câu SELECT để trả lời.
@@ -187,7 +189,6 @@ LOẠI ĐÁP ÁN (type)
 # ==========================================
 def build_sqlite_db(biz_id):
     biz_path = os.path.join(INPUT_DIR, "data", biz_id)
-    # Lưu file database tạm vào /tmp để tránh lỗi Permission Denied
     db_path = f"/tmp/_temp_{biz_id}.db" 
     
     if os.path.exists(db_path):
@@ -250,7 +251,6 @@ for idx, q in enumerate(questions):
     user_prompt = f"Doanh nghiệp: {biz_id}\nREADME:\n{readme}\nSchema:\n{schema}\nHôm nay là: {as_of_date}\nCâu hỏi: {q['question']}\nTrả về JSON."
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
     
-    # FIX LỖI ATTRIBUTE ERROR TẠI ĐÂY
     prompt_text = tokenizer.apply_chat_template(
         messages, 
         tokenize=False, 
@@ -302,6 +302,23 @@ for idx, q in enumerate(questions):
 
     results.append({"id": qid, "type": ans_type, "answer": pred})
     
+    # ==========================================
+    # 🌟 BƯỚC MỚI: GHI LOG CHO TỪNG CÂU HỎI
+    # ==========================================
+    log_data = {
+        "id": qid,
+        "question": q["question"],
+        "response": response_text,  # Lưu lại câu trả lời thô của AI
+        "sql": ai_output.get("sql") if 'ai_output' in locals() else None,
+        "type": ans_type,
+        "answer": pred,
+        "code": "",   # Để rỗng theo đúng FAQ của BTC
+        "output": ""  # Để rỗng theo đúng FAQ của BTC
+    }
+    log_path = os.path.join(LOGS_DIR, f"{qid}.json")
+    with open(log_path, "w", encoding="utf-8") as lf:
+        json.dump(log_data, lf, ensure_ascii=False, indent=2)
+
     if (idx + 1) % 50 == 0:
         print(f"  ✅ Đã xong {idx + 1}/{len(questions)}")
 
@@ -312,3 +329,4 @@ with open(output_path, "w", encoding="utf-8") as f:
         f.write(json.dumps(res, ensure_ascii=False) + "\n")
 
 print(f"🎉 HOÀN THÀNH! File kết quả đã lưu tại: {output_path}")
+print(f"📁 Log từng câu đã được lưu tại thư mục: {LOGS_DIR}")
