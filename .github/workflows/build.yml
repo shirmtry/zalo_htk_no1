@@ -24,15 +24,15 @@ jobs:
           rm qwen_sql_merged_4bit.zip
 
       - name: Build Docker Image
-        run: docker build -t zalo_dataspace:v7 .  # <-- ĐÃ SỬA THÀNH v7
+        run: docker build -t zalo_dataspace:v8 .  # <-- ĐÃ SỬA THÀNH v8
 
       - name: Save Docker Image to Tar
-        run: docker save -o zalo_dataspace_v7.tar zalo_dataspace:v7
+        run: docker save -o zalo_dataspace_v8.tar zalo_dataspace:v8
 
       # 🌟 TÍNH MÃ MD5 VÀ LƯU RA FILE
       - name: Tính mã MD5
         run: |
-          md5sum zalo_dataspace_v7.tar > checksum.md5
+          md5sum zalo_dataspace_v8.tar > checksum.md5
           echo "Mã MD5 của bạn là:"
           cat checksum.md5
 
@@ -48,8 +48,8 @@ jobs:
           
           print('Đang bắt đầu upload file 11GB lên Hugging Face...')
           api.upload_file(
-              path_or_fileobj='zalo_dataspace_v7.tar',
-              path_in_repo='zalo_dataspace_v7.tar',
+              path_or_fileobj='zalo_dataspace_v8.tar',
+              path_in_repo='zalo_dataspace_v8.tar',
               repo_id='Huy1223/zalo_submit_htk',
               repo_type='dataset',
               token=os.environ['HF_TOKEN']
